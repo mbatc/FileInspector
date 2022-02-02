@@ -2,6 +2,8 @@
 
 #include "ui.h"
 #include "thread_pool.h"
+#include "inspector_options.h"
+#include "inspector_results.h"
 
 #include <filesystem>
 #include <map>
@@ -11,26 +13,14 @@ namespace fi
   class inspector
   {
   public:
-    struct file_data
-    {
-      std::vector<std::filesystem::directory_entry> entries;
-    };
+    inspector();
 
     void update();
     void draw_ui();
 
-    void start_inspecting(std::filesystem::path const &folder);
-    void stop_inspecting();
+    std::shared_ptr<inspector_results> start_inspecting(inspector_options opts);
+
     bool is_inspecting() const;
-
-    bool has_results() const;
-    void clear_results();
-
-    int64_t num_files_discovered() const;
-    int64_t num_directories_discovered() const;
-
-    std::map<std::string, file_data> get_name_collisions();
-    std::map<uint64_t, file_data>    get_data_collisions();
 
     static thread_pool &get_thread_pool();
 
@@ -41,28 +31,7 @@ namespace fi
     }
 
   private:
-    struct
-    {
-      ui::main_menu mainMenu;
-    } m_ui;
-
-    void inspect_directory(std::filesystem::path const &folder);
-    void inspect_entry(std::filesystem::directory_entry const &entry);
-
-    file_data& get_data_by_name(std::string const &name);
-    file_data& get_data_by_content_hash(uint64_t const &contentHash);
-
-    bool m_stop = false;
-
-    std::unique_lock<std::mutex> get_lock();
-    std::filesystem::path m_directory; // Directory to inspect
-
-    std::mutex m_lock;
-    std::atomic_uint64_t m_directoriesFound;
-    std::atomic_uint64_t m_filesFound;
-    std::atomic_uint64_t m_directoriesToInspect;
-
-    std::map<std::string, file_data> m_nameCollisions;
-    std::map<uint64_t, file_data> m_contentCollisions;
+    std::vector<std::shared_ptr<inspector_results>> m_inspections;
+    ui::view m_ui;
   };
 }

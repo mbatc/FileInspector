@@ -107,7 +107,7 @@ private:
     {
       // Wait for a task to be available
       std::unique_lock ul(m_lock);
-      m_cv.wait(ul, [=]() { return m_tasks.size() > 0; });
+      m_cv.wait(ul, [=]() { return !m_running || m_tasks.size() > 0; });
 
       if (!m_running)
         return;

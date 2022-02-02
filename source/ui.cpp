@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "filedialog.h"
 #include "fileinspector.h"
+#include "inspector_results.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 
@@ -8,51 +9,135 @@ namespace fi
 {
   namespace ui
   {
-    void main_menu::update(inspector &ctx)
+    void status_bar::update(view & parent, inspector & ctx)
     {
-      // Fill the entire screen
-      ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-      ImGui::SetNextWindowPos(ImVec2(0, 0));
+      ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetIO().DisplaySize.y), 0, ImVec2(0, 1));
+      ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetIO().DisplaySize.x, 0), ImVec2(ImGui::GetIO().DisplaySize.x, FLT_MAX));
 
-      if (ImGui::Begin("Main Menu"))
+      if (ImGui::Begin("Status"))
       {
-        if (ctx.is_inspecting())
+        if (pResults && pResults->directories_to_inspect() > 0)
           ImGui::Text("[ Working... ]");
         else
           ImGui::Text("[ Stopped... ]");
 
-        if (ctx.has_results())
+        if (pResults && !pResults->empty())
         {
+          if (pResults->directories_to_inspect() > 0)
+          {
+            ImGui::SameLine();
+            if (ImGui::Button("Stop"))
+              pResults->stop();
+          }
+
           ImGui::SameLine();
-          ImGui::Text("Analyzed %d files in %d directories", ctx.num_files_discovered(), ctx.num_directories_discovered());
+
+          ImGui::Text("Analyzed %d files in %d directories", pResults->num_files_discovered(), pResults->num_directories_discovered());
         }
+      }
 
-        ImGui::Separator();
+      ImGui::End();
+    }
 
-        if (ImGui::Button("Inspect Folder"))
+    void main_menu::update(view & parent, inspector & ctx)
+    {
+      ImGui::SetNextWindowPos(ImGui::GetIO().DisplaySize / 2, 0, ImVec2(0.5f, 0.5f));
+      ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize / 2);
+
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 16.0f));
+
+      if (ImGui::Begin("Main Menu", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+      {
+        ImGui::SetCursorPos(ImGui::GetWindowSize() / 4);
+        if (ImGui::Button("Start", ImVec2(ImGui::GetWindowSize() / 2)))
         {
           open_file_dialog dialog(true, false);
           if (dialog.show(""))
-            ctx.start_inspecting(dialog.get_selected()[0]);
+          {
+            parent.remove(this);
+            parent.add<options_menu>(dialog.get_selected()[0]);
+          }
         }
+      }
 
-        if (ctx.is_inspecting())
-        {
-          ImGui::SameLine();
-          if (ImGui::Button("Stop"))
-            ctx.stop_inspecting();
-        }
+      ImGui::PopStyleVar(3);
+      ImGui::End();
+    }
 
+    options_menu::options_menu(std::filesystem::path rootPath)
+    {
+      m_options.rootPath = rootPath;
+    }
+
+    void options_menu::update(view & parent, inspector & ctx)
+    {
+      ImGui::SetNextWindowPos(ImGui::GetIO().DisplaySize / 2, 0, ImVec2(0.5f, 0.5f));
+      ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x / 2, 0));
+
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 16.0f));
+
+      if (ImGui::Begin("Options", 0, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+      {
+        ImGui::Text("Inspecting %s...", m_options.rootPath.string().c_str());
         ImGui::Separator();
-
-        if (ctx.has_results())
+        ImGui::NewLine();
+        ImGui::Checkbox("Match similar names", &m_options.matchSimilarNames);
+        ImGui::Checkbox("Match file contents", &m_options.matchContents);
+        if (m_options.matchContents)
+          ImGui::Checkbox("Match similar contents", &m_options.matchSimilarContents);
+        ImGui::NewLine();
+        ImGui::Separator();
+        ImGui::PushMultiItemsWidths(2, ImGui::GetWindowContentRegionWidth());
+        if (ImGui::Button("Back", { ImGui::CalcItemWidth(), ImGui::GetTextLineHeightWithSpacing() * 2 }))
         {
-          auto nameCols = ctx.get_name_collisions();
-          ImGui::PushMultiItemsWidths(2, ImGui::GetWindowWidth());
-          ImGui::BeginChild("Frame_NameCollisions", ImVec2(ImGui::CalcItemWidth(), 0), true);
-          ImGui::CollapsingHeader("Duplicates Found", ImGuiTreeNodeFlags_Leaf);
+          parent.remove(this);
+          parent.add<main_menu>();
+        }
 
-          ImGui::BeginChild("Frame_NameCollisionsList", ImVec2(0, 0), true);
+        ImGui::PopItemWidth();
+        ImGui::SameLine(0, ImGui::GetStyle().ItemInnerSpacing.x);
+        if (ImGui::Button("Go!", { ImGui::CalcItemWidth(), ImGui::GetTextLineHeightWithSpacing() * 2 }))
+        {
+          parent.remove(this);
+          parent.add<results_page>(ctx.start_inspecting(m_options));
+        }
+
+        ImGui::PopItemWidth();
+      }
+
+      ImGui::PopStyleVar(3);
+
+      ImGui::End();
+    }
+
+    results_page::results_page(std::shared_ptr<inspector_results> pResults)
+    {
+      m_pResults = pResults;
+    }
+
+    void results_page::update(view & parent, inspector & ctx)
+    {
+      parent.get<status_bar>()->pResults = m_pResults;
+
+      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+
+      // Fill the entire screen
+      if (ImGui::Begin("Results"))
+      {
+        if (!m_pResults->empty())
+        {
+          auto nameCols = m_pResults->get_name_collisions();
+          ImGui::PushMultiItemsWidths(2, ImGui::GetWindowWidth());
+          ImGui::BeginChild("Frame_NameCollisions", ImVec2(ImGui::CalcItemWidth(), 0));
+
+          ImGui::CollapsingHeader("Duplicates Found", ImGuiTreeNodeFlags_Leaf);
+          ImGui::Separator();
+
+          ImGui::BeginChild("Frame_NameCollisionsList", ImVec2(0, 0));
 
           for (auto &entry : nameCols)
           {
@@ -67,9 +152,12 @@ namespace fi
 
           ImGui::SameLine();
 
-          ImGui::BeginChild("Frame_Selected", ImVec2(ImGui::CalcItemWidth(), 0), true);
+          ImGui::BeginChild("Frame_Selected", ImVec2(ImGui::CalcItemWidth(), 0));
+
           ImGui::CollapsingHeader("Duplicates Found", ImGuiTreeNodeFlags_Leaf);
-          ImGui::BeginChild("Frame_SelectedList", ImVec2(0, 0), true);
+          ImGui::Separator();
+
+          ImGui::BeginChild("Frame_SelectedList", ImVec2(0, 0));
 
 
           auto entryIt = nameCols.find(m_selectedDuplicate);
@@ -145,6 +233,7 @@ namespace fi
         }
       }
 
+      ImGui::PopStyleVar();
       ImGui::End();
     }
   }
