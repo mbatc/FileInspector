@@ -21,14 +21,14 @@ namespace fi
   std::shared_ptr<inspector_results> inspector::start_inspecting(inspector_options opts)
   {
     auto pResults = std::make_shared<inspector_results>(*this, opts);
-    enqueue_task([=]() { inspector_results::inspect_directory(pResults, opts.rootPath); return 1; });
+    enqueue_task(0, [=]() { inspector_results::inspect_directory(pResults, opts.rootPath); return 1; });
     return pResults;
   }
 
-  thread_pool &fi::inspector::get_thread_pool()
+  thread_pool &fi::inspector::get_thread_pool(uint64_t poolID)
   {
-    static thread_pool pool;
-    return pool;
+    static thread_pool pool[NumThreadPools];
+    return pool[poolID % NumThreadPools];
   }
 
   bool inspector::is_inspecting() const

@@ -31,10 +31,11 @@ namespace fi
 
     int64_t num_files_discovered() const;
     int64_t num_directories_discovered() const;
+    int64_t num_file_contents_inspected() const;
     int64_t directories_to_inspect() const;
 
-    std::map<std::string, file_list> get_name_collisions();
-    std::map<uint64_t, file_list>    get_data_collisions();
+    const std::map<std::string, file_list>& get_name_collisions();
+    const std::map<uint64_t, file_list>&    get_data_collisions();
 
     inspector_options get_options() const;
 
@@ -51,7 +52,14 @@ namespace fi
     std::mutex m_lock;
     std::atomic_uint64_t m_directoriesFound;
     std::atomic_uint64_t m_filesFound;
+    std::atomic_uint64_t m_contentsInspected;
     std::atomic_uint64_t m_directoriesToInspect;
+
+    // Mapping from path to matched name
+    std::map<std::string, std::string> m_pathToName;
+
+    // Mapping from path to content hash
+    std::map<std::string, uint64_t>    m_pathToContent;
 
     std::map<std::string, file_list> m_nameCollisions;
     std::map<uint64_t, file_list> m_contentCollisions;

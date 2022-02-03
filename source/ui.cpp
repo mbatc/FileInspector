@@ -31,10 +31,13 @@ namespace fi
           }
 
           ImGui::SameLine();
-
-          ImGui::Text("Analyzed %d files in %d directories", pResults->num_files_discovered(), pResults->num_directories_discovered());
+          ImGui::Text("Found %d files in %d directories.", pResults->num_files_discovered(), pResults->num_directories_discovered());
+          ImGui::SameLine();
+          ImGui::Text("Compared %d files contents.", pResults->num_file_contents_inspected());
         }
       }
+      
+      height = ImGui::GetWindowHeight();
 
       ImGui::End();
     }
@@ -87,8 +90,8 @@ namespace fi
         ImGui::NewLine();
         ImGui::Checkbox("Match similar names", &m_options.matchSimilarNames);
         ImGui::Checkbox("Match file contents", &m_options.matchContents);
-        if (m_options.matchContents)
-          ImGui::Checkbox("Match similar contents", &m_options.matchSimilarContents);
+        // if (m_options.matchContents)
+        //   ImGui::Checkbox("Match similar contents", &m_options.matchSimilarContents);
         ImGui::NewLine();
         ImGui::Separator();
         ImGui::PushMultiItemsWidths(2, ImGui::GetWindowContentRegionWidth());
@@ -119,31 +122,103 @@ namespace fi
       m_pResults = pResults;
     }
 
+
+    auto results_page::draw_name_collisions_list(std::map<std::string, file_list> const & nameCols)
+    {
+      for (auto &entry : nameCols)
+      {
+        if (entry.second.entries.size() > 1)
+          if (ImGui::Selectable(entry.first.c_str(), entry.first == m_selectedDuplicate))
+            m_selectedDuplicate = entry.first;
+      }
+
+      return nameCols.find(m_selectedDuplicate);
+    }
+
+    auto results_page::draw_data_collisions_list(std::map<uint64_t, file_list> const & dataCols)
+    {
+      for (auto &entry : dataCols)
+      {
+        if (entry.second.entries.size() > 1)
+        {
+          int *pIDs = (int*)&m_selectedContentHash;
+          ImGui::PushID(pIDs[0]);
+          ImGui::PushID(pIDs[1]);
+
+          std::string name = entry.second.entries[0].path().filename().string();
+          if (ImGui::Selectable(name.c_str(), entry.first == m_selectedContentHash))
+            m_selectedContentHash = entry.first;
+
+          ImGui::PopID();
+          ImGui::PopID();
+        }
+      }
+
+      return dataCols.find(m_selectedContentHash);
+    }
+
     void results_page::update(view & parent, inspector & ctx)
     {
       parent.get<status_bar>()->pResults = m_pResults;
+      float height = ImGui::GetIO().DisplaySize.y - parent.get<status_bar>()->height;
+      float width  = ImGui::GetIO().DisplaySize.x;
 
       ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 16.0f));
+      ImGui::SetNextWindowPos(ImVec2(0, 0));
+      ImGui::SetNextWindowSize(ImVec2(width, height));
+
+      ActivePage page = AP_Names;
 
       // Fill the entire screen
-      if (ImGui::Begin("Results"))
+      if (ImGui::Begin("Results", 0, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
       {
         if (!m_pResults->empty())
         {
-          auto nameCols = m_pResults->get_name_collisions();
-          ImGui::PushMultiItemsWidths(2, ImGui::GetWindowWidth());
+          ImGui::PushMultiItemsWidths(3, ImGui::GetWindowWidth());
           ImGui::BeginChild("Frame_NameCollisions", ImVec2(ImGui::CalcItemWidth(), 0));
 
-          ImGui::CollapsingHeader("Duplicates Found", ImGuiTreeNodeFlags_Leaf);
+          if (ImGui::BeginTabBar("Frame_ColTabs"))
+          {
+            if (ImGui::BeginTabItem("Name Matches"))
+            {
+              page = AP_Names;
+              ImGui::EndTabItem();
+            }
+          
+            if (m_pResults->get_options().matchContents)
+            {
+              if (ImGui::BeginTabItem("Content Matches"))
+              {
+                page = AP_Contents;
+                ImGui::EndTabItem();
+              }
+            }
+
+            ImGui::EndTabBar();
+          }
+
+          auto& nameCols = m_pResults->get_name_collisions();
+          auto& contentCols = m_pResults->get_data_collisions();
+
           ImGui::Separator();
 
           ImGui::BeginChild("Frame_NameCollisionsList", ImVec2(0, 0));
 
-          for (auto &entry : nameCols)
+          file_list files;
+
+          if (page == AP_Names)
           {
-            if (entry.second.entries.size() > 1)
-              if (ImGui::Selectable(entry.first.c_str(), entry.first == m_selectedDuplicate))
-                m_selectedDuplicate = entry.first;
+            auto it = draw_name_collisions_list(nameCols);
+            if (it != nameCols.end())
+              files = it->second;
+          }
+          else if (page == AP_Contents)
+          {
+            auto it = draw_data_collisions_list(contentCols);
+            if (it != contentCols.end())
+              files = it->second;
           }
 
           ImGui::EndChild();
@@ -152,89 +227,92 @@ namespace fi
 
           ImGui::SameLine();
 
-          ImGui::BeginChild("Frame_Selected", ImVec2(ImGui::CalcItemWidth(), 0));
+          ImGui::BeginChild("Frame_Selected", ImVec2(ImGui::CalcItemWidth() * 2, 0));
 
           ImGui::CollapsingHeader("Duplicates Found", ImGuiTreeNodeFlags_Leaf);
           ImGui::Separator();
 
           ImGui::BeginChild("Frame_SelectedList", ImVec2(0, 0));
 
+          if (files.entries.size() > 0)
+            draw_selected_content(files);
 
-          auto entryIt = nameCols.find(m_selectedDuplicate);
-          if (entryIt != nameCols.end())
-          {
-            static std::string actionItem;
-
-            bool openDefaultAction = false;
-            bool openInExplorer = false;
-            bool deleteFile = false;
-
-            for (auto &file : entryIt->second.entries)
-            {
-              ImGui::Selectable(file.path().string().c_str());
-
-              if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-              {
-                openDefaultAction = true;
-                actionItem = file.path().string();
-              }
-
-              if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-              {
-                ImGui::OpenPopup("context_menu");
-                actionItem = file.path().string();
-              }
-            }
-
-            if (ImGui::BeginPopup("context_menu"))
-            {
-              if (ImGui::Selectable("Show in Explorer"))
-                openInExplorer = true;
-              if (ImGui::Selectable("Open File"))
-                openDefaultAction = true;
-              if (ImGui::Selectable("Delete"))
-                deleteFile = true;
-
-              ImGui::EndPopup();
-            }
-
-            if (openInExplorer)
-            {
-              ShellExecuteA(0, "open", "explorer.exe", ("/select,\"" + actionItem + "\"").c_str(), 0, SW_NORMAL);
-              fi::log("OP", "show in explorer: %s", actionItem.c_str());
-            }
-
-            if (openDefaultAction)
-            {
-              ShellExecuteA(NULL, "", actionItem.c_str(), 0, 0, SW_SHOWDEFAULT);
-              fi::log("OP", "open in default program: %s", actionItem.c_str());
-            }
-
-            if (deleteFile)
-            {
-              std::vector<char> name;
-              for (char c : std::filesystem::canonical(actionItem).string())
-                name.push_back(c);
-              name.push_back('\0');
-
-              SHFILEOPSTRUCTA opt = { 0 };
-              opt.fFlags = FOF_ALLOWUNDO;
-              opt.wFunc = FO_DELETE;
-              opt.pFrom = name.data();
-              SHFileOperationA(&opt);
-
-              fi::log("OP", "deleting file: %s", name.data());
-            }
-          }
           ImGui::EndChild();
           ImGui::EndChild();
+
           ImGui::PopItemWidth();
-
+          ImGui::PopItemWidth();
         }
       }
 
-      ImGui::PopStyleVar();
+      ImGui::PopStyleVar(3);
       ImGui::End();
+    }
+
+    void results_page::draw_selected_content(file_list const & collisions)
+    {
+      static std::string actionItem;
+
+      bool openDefaultAction = false;
+      bool openInExplorer = false;
+      bool deleteFile = false;
+
+      for (auto &file : collisions.entries)
+      {
+        ImGui::Selectable(file.path().string().c_str());
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+          openDefaultAction = true;
+          actionItem = file.path().string();
+        }
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+        {
+          ImGui::OpenPopup("context_menu");
+          actionItem = file.path().string();
+        }
+      }
+
+      if (ImGui::BeginPopup("context_menu"))
+      {
+        if (ImGui::Selectable("Show in Explorer"))
+          openInExplorer = true;
+        if (ImGui::Selectable("Open File"))
+          openDefaultAction = true;
+        if (ImGui::Selectable("Delete"))
+          deleteFile = true;
+
+        ImGui::EndPopup();
+      }
+
+      if (openInExplorer)
+      {
+        ShellExecuteA(0, "open", "explorer.exe", ("/select,\"" + actionItem + "\"").c_str(), 0, SW_NORMAL);
+        fi::log("OP", "show in explorer: %s", actionItem.c_str());
+      }
+
+      if (openDefaultAction)
+      {
+        ShellExecuteA(NULL, "", actionItem.c_str(), 0, 0, SW_SHOWDEFAULT);
+        fi::log("OP", "open in default program: %s", actionItem.c_str());
+      }
+
+      if (deleteFile)
+      {
+        std::vector<char> name;
+        for (char c : std::filesystem::canonical(actionItem).string())
+          name.push_back(c);
+        name.push_back('\0');
+
+        SHFILEOPSTRUCTA opt = { 0 };
+        opt.fFlags = FOF_ALLOWUNDO;
+        opt.wFunc = FO_DELETE;
+        opt.pFrom = name.data();
+        SHFileOperationA(&opt);
+
+        fi::log("OP", "deleting file: %s", name.data());
+      }
     }
   }
 }

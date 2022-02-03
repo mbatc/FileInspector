@@ -8,8 +8,8 @@ namespace fi
   {
     std::filesystem::path rootPath;
 
-    bool matchSimilarNames;
-    bool matchContents;
-    bool matchSimilarContents;
+    bool matchSimilarNames = false;
+    bool matchContents = false;
+    bool matchSimilarContents = false;
   };
 }

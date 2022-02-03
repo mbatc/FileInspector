@@ -10,6 +10,8 @@
 
 namespace fi
 {
+  static constexpr int64_t NumThreadPools = 2;
+
   class inspector
   {
   public:
@@ -22,12 +24,12 @@ namespace fi
 
     bool is_inspecting() const;
 
-    static thread_pool &get_thread_pool();
+    static thread_pool &get_thread_pool(uint64_t poolID);
 
     template<typename Functor, typename... Args>
-    static auto enqueue_task(Functor &&func, Args... args)
+    static auto enqueue_task(uint64_t poolID, Functor &&func, Args... args)
     {
-      return get_thread_pool().enqueue(func, std::forward<Args>(args)...);
+      return get_thread_pool(poolID).enqueue(func, std::forward<Args>(args)...);
     }
 
   private:

@@ -5,6 +5,7 @@
 #include <typeindex>
 #include <memory>
 
+#include "inspector_results.h"
 #include "inspector_options.h"
 
 namespace fi
@@ -30,6 +31,7 @@ namespace fi
         for (auto &[type, pMenu] : m_toAdd)
           if (!m_menus.try_emplace(type, pMenu).second)
             delete pMenu;
+
         m_toAdd.clear();
 
         for (auto &[type, pMenu] : m_menus)
@@ -47,6 +49,7 @@ namespace fi
             }
           }
         }
+
         m_toRemove.clear();
       }
 
@@ -73,6 +76,8 @@ namespace fi
     public:
       virtual void update(view &parent, inspector &ctx) override;
 
+      float height;
+
       std::shared_ptr<inspector_results> pResults;
     };
     
@@ -95,12 +100,25 @@ namespace fi
     class results_page : public menu
     {
     public:
+      enum ActivePage
+      {
+        AP_Names,
+        AP_Contents,
+        AP_Count,
+      };
+
       results_page(std::shared_ptr<inspector_results> pResults);
 
       virtual void update(view &parent, inspector &ctx) override;
 
+      auto draw_name_collisions_list(std::map<std::string, file_list> const & nameCols);
+      auto draw_data_collisions_list(std::map<uint64_t, file_list> const & dataCols);
+
+      void draw_selected_content(file_list const & collisions);
+
     private:
       std::shared_ptr<inspector_results> m_pResults;
+      uint64_t    m_selectedContentHash;
       std::string m_selectedDuplicate;
     };
   }

@@ -88,7 +88,6 @@ public:
 
     auto funcHandle = std::make_shared<handle<ReturnType>>(functor, std::forward<Args>(args)...);
 
-
     m_lock.lock();
     m_tasks.push_back([funcHandle]() {
       funcHandle->run();
